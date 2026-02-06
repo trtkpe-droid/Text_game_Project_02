@@ -22,6 +22,7 @@ class TextGameUI:
         self.engine = GameEngine()
         self.running = False
         self.mod_path: Path | None = None
+        self.test_mode: str | None = None  # "battle", "sequence", or None
 
     def display_messages(self, messages: list[str]) -> None:
         """Display messages to the console."""
@@ -121,6 +122,14 @@ class TextGameUI:
                 print("\nゲームクリア！おめでとうございます！")
                 break
 
+            # Check if test mode ended
+            if self.test_mode == "battle" and not self.engine.game_state.in_battle:
+                print("\n戦闘テスト終了")
+                break
+            if self.test_mode == "sequence" and not self.engine.game_state.in_bind_sequence:
+                print("\nシーケンステスト終了")
+                break
+
             # Display status bar
             self.display_status()
 
@@ -207,9 +216,11 @@ class TextGameUI:
         self.engine.new_game()
         print(f"\n{enemy.name}との戦闘を開始します！\n")
 
-        # Start battle
+        # Start battle in test mode
+        self.test_mode = "battle"
         self.engine._start_battle(enemy_id)
         self.game_loop()
+        self.test_mode = None
 
     def run_sequence_test(self) -> None:
         """Run bind sequence test mode."""
@@ -244,9 +255,11 @@ class TextGameUI:
         self.engine.new_game()
         print(f"\n{seq.metadata.name}を開始します！\n")
 
-        # Start bind sequence
+        # Start bind sequence in test mode
+        self.test_mode = "sequence"
         self.engine._start_bind_sequence(seq_id)
         self.game_loop()
+        self.test_mode = None
 
     def run_node_test(self) -> None:
         """Run node test mode (start from any node)."""
