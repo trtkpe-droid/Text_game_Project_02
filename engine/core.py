@@ -178,13 +178,13 @@ class GameEngine:
 
     def get_available_actions(self) -> list[dict]:
         """Get all available actions in the current context."""
+        # In bind sequence (takes priority over battle)
+        if self.game_state.in_bind_sequence and self.bind_system:
+            return self.bind_system.get_available_choices()
+
         # In battle
         if self.game_state.in_battle and self.battle_system:
             return self.battle_system.get_player_actions()
-
-        # In bind sequence
-        if self.game_state.in_bind_sequence and self.bind_system:
-            return self.bind_system.get_available_choices()
 
         # Normal exploration
         node = self.nodes.get(self.game_state.current_node)
