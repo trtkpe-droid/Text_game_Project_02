@@ -810,6 +810,7 @@ class BattleSystem:
     def _handle_enemy_defeat(self) -> list[str]:
         """Handle enemy defeat."""
         enemy = self.battle_state.enemy
+        player = self.game_state.player
         messages = []
 
         if enemy.text.defeat:
@@ -821,8 +822,88 @@ class BattleSystem:
         if exp > 0:
             messages.append(f"{exp}の経験値を獲得！")
 
+        # Process item drops
+        if enemy.rewards.drops:
+            drop_messages = self._process_drops(enemy.rewards.drops)
+            messages.extend(drop_messages)
+
         self._end_battle(player_won=True)
         return messages
+
+    def _process_drops(self, drops) -> list[str]:
+        """Process enemy drop rewards."""
+        messages = []
+
+        # Handle both WeightedRandom objects and dicts
+        if hasattr(drops, 'options'):
+            options = drops.options
+        elif isinstance(drops, dict):
+            options = drops.get('options', [])
+        else:
+            return messages
+
+        if not options:
+            return messages
+
+        # Roll for drops using weighted random
+        total_weight = 0
+        for opt in options:
+            if hasattr(opt, 'weight'):
+                total_weight += opt.weight
+            elif isinstance(opt, dict):
+                total_weight += opt.get('weight', 1)
+
+        if total_weight == 0:
+            return messages
+
+        roll = random.randint(1, total_weight)
+        cumulative = 0
+
+        for opt in options:
+            if hasattr(opt, 'weight'):
+                weight = opt.weight
+                value = opt.value
+            elif isinstance(opt, dict):
+                weight = opt.get('weight', 1)
+                value = opt.get('value')
+            else:
+                continue
+
+            cumulative += weight
+            if roll <= cumulative:
+                if value is None:
+                    # No drop
+                    break
+                elif isinstance(value, list):
+                    # Set of items
+                    for item_id in value:
+                        if item_id:
+                            self._add_item_to_player(item_id)
+                            item_name = self._get_item_name(item_id)
+                            messages.append(f"{item_name}を手に入れた！")
+                else:
+                    # Single item
+                    self._add_item_to_player(value)
+                    item_name = self._get_item_name(value)
+                    messages.append(f"{item_name}を手に入れた！")
+                break
+
+        return messages
+
+    def _add_item_to_player(self, item_id: str, count: int = 1) -> None:
+        """Add an item to player's inventory."""
+        player = self.game_state.player
+        if item_id in player.inventory:
+            player.inventory[item_id] += count
+        else:
+            player.inventory[item_id] = count
+
+    def _get_item_name(self, item_id: str) -> str:
+        """Get item display name."""
+        item = self.items.get(item_id)
+        if item:
+            return item.name
+        return item_id
 
     def _handle_player_defeat(self) -> list[str]:
         """Handle player defeat."""

@@ -332,9 +332,17 @@ class GameEngine:
 
     def _on_battle_end(self, player_won: bool, escaped: bool = False) -> None:
         """Handle battle end."""
-        if not player_won and not escaped:
+        # Note: current_enemy is cleared in battle system, so we get it from battle_state
+        enemy = None
+        if self.battle_system and self.battle_system.battle_state:
+            enemy = self.battle_system.battle_state.enemy
+
+        if player_won:
+            # Check for victory event
+            if enemy and enemy.events.get("on_victory"):
+                self.navigate_to(enemy.events["on_victory"])
+        elif not escaped:
             # Check for defeat event
-            enemy = self.game_state.current_enemy
             if enemy and enemy.events.get("on_defeat"):
                 self.navigate_to(enemy.events["on_defeat"])
 
