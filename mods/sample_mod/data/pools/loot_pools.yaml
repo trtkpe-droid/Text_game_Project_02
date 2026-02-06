@@ -1,0 +1,24 @@
+item_pools:
+  daily_items:
+    type: weighted_random
+    options:
+      - weight: 40
+        value: herb
+      - weight: 30
+        value: bandage
+      - weight: 15
+        value: antidote
+      - weight: 10
+        value: lighter
+      - weight: 5
+        value: null
+
+  rare_items:
+    type: weighted_random
+    options:
+      - weight: 50
+        value: magic_stone
+      - weight: 30
+        value: rare_essence
+      - weight: 20
+        value: null

@@ -1,0 +1,2 @@
+# Text Game Engine Dependencies
+PyYAML>=6.0

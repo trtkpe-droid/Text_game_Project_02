@@ -1,0 +1,202 @@
+bind_sequence:
+  id: succubus_drain
+
+  metadata:
+    name: "サキュバスの精気吸収"
+    description: "キスにより精気を吸い取られる拘束"
+
+  config:
+    base_difficulty: 50
+    escape_target: battle_resume
+    loop_damage:
+      pt: 20
+      hp: 5
+
+  stages:
+    # 第1段階
+    - stage: 0
+      description: |
+        甘い香りが思考を鈍らせる。
+        サキュバスはあなたの耳元で何かを囁き、魔法的な力で動きを封じてくる。
+
+      player_texts:
+        on_resist_success:
+          type: random_select
+          options:
+            - "必死に抵抗した！"
+            - "なんとか振りほどいた！"
+
+        on_resist_fail:
+          type: random_select
+          options:
+            - "抵抗できない……"
+            - "体が言うことを聞かない……"
+
+        on_wait: "力を溜めている……。"
+
+      enemy_reactions:
+        on_player_resist_success: "「あら、意外と元気なのね？」"
+        on_player_resist_fail: "「ふふ、いい子ね……♡」"
+        on_player_wait: "「そう、そのままで……」"
+
+    # 第2段階
+    - stage: 1
+      description: |
+        「暴れないで……いい夢を見せてあげる」
+        柔らかな翼が視界を覆い、強烈な眠気が襲ってくる。
+
+      enemy_reactions:
+        on_player_resist_success: "「きゃっ！？ ……乱暴な人ね」"
+        on_player_resist_fail: "「もう少しで……ね♡」"
+
+    # 第3段階（カスタムアクション使用）
+    - stage: 2
+      description: |
+        サキュバスがあなたの顔を覗き込む。
+        その瞳には怪しい光が宿っており、見つめているだけで吸い込まれそうだ。
+        彼女の唇がゆっくりと近づいてくる……。
+
+      player_texts:
+        on_resist_success: "誘惑を振り切り、サキュバスを引き剥がした！"
+        on_wait: "抵抗を諦め、その瞳を見つめ返す……。"
+
+      enemy_reactions:
+        on_player_resist_success: "「きゃっ！？ ……乱暴な人ね」"
+        on_player_resist_fail: |
+          「ふふ、いい子ね。力を抜いて……♡」
+          サキュバスの顔がゆっくりと近づいてくる。
+        on_player_wait: "「そう、そのままで……」"
+
+      custom_actions:
+        # 顔を背ける
+        - id: turn_away
+          label: "顔を背けて拒絶する"
+          description: "唇が触れる寸前、顔を横に向けて避ける。"
+
+          success_check:
+            type: stat_based
+            base_rate: 40
+            formula: "dexterity * 0.5"
+
+          on_success:
+            effects:
+              - type: message
+                text: |
+                  唇が触れる寸前、必死に顔を背けた！
+                  サキュバスは不満げに頬を膨らませる。
+              - type: stage_regress
+                amount: 1
+
+            enemy_reaction: "「……もう、照れないでよ」"
+
+          on_failure:
+            effects:
+              - type: message
+                text: "顔を背けようとしたが、魔力で固定されている……！"
+              - type: stage_progress
+                amount: 1
+              - type: modify_stat
+                stat: pt
+                operator: "+"
+                value: 15
+
+            enemy_reaction: "「逃がさないわよ……♡」"
+
+        # 魔法で反撃
+        - id: cast_counter_spell
+          label: "魔法で反撃する"
+          description: "至近距離から魔法を放ち、押し返す。"
+
+          requirements:
+            - type: stat_check
+              stat: mp
+              operator: ">="
+              value: 20
+
+          cost:
+            mp: 20
+
+          success_check:
+            type: stat_based
+            formula: "intelligence * 0.8 + sanity * 0.2"
+
+          on_success:
+            effects:
+              - type: message
+                text: |
+                  唇が触れる瞬間、魔法の光が爆ぜた！
+                  サキュバスは悲鳴を上げて吹き飛び、体が自由になる！
+              - type: deal_damage
+                target: enemy
+                damage: 30
+              - type: escape_bind
+
+            enemy_reaction: "「きゃああっ！？ こ、この……っ！」"
+
+          on_failure:
+            effects:
+              - type: message
+                text: |
+                  魔法を放とうとしたが、サキュバスの唇が先に触れた。
+                  魔力が乱れ、何も起こらない……！
+              - type: modify_stat
+                stat: pt
+                operator: "+"
+                value: 30
+              - type: stage_progress
+                amount: 2
+
+            enemy_reaction: "「あらあら、焦っちゃって♡」"
+
+    # 最終段階（ループ）
+    - stage: 3
+      description: |
+        サキュバスの唇があなたの唇に重なる。
+        柔らかく、甘く、そして恐ろしいほど心地よい感触。
+        触れた場所から、急速に力が抜けていく……。
+
+      loop_effects:
+        - type: modify_stat
+          stat: pt
+          operator: "+"
+          value: 20
+        - type: modify_stat
+          stat: hp
+          operator: "-"
+          value: 5
+        - type: message
+          text: "精気を吸い取られている……！"
+
+      custom_actions:
+        - id: bite_lip
+          label: "唇を噛んで抵抗する"
+          description: "サキュバスの唇を噛んで怯ませる。"
+
+          success_check:
+            type: stat_based
+            formula: "sanity * 0.6 + strength * 0.2"
+
+          on_success:
+            effects:
+              - type: message
+                text: |
+                  思い切り唇を噛んだ！
+                  サキュバスが悲鳴を上げて離れた！
+              - type: deal_damage
+                target: enemy
+                damage: 15
+              - type: stage_regress
+                amount: 2
+
+            enemy_reaction: "「いったぁい！ ひどい……！」"
+
+          on_failure:
+            effects:
+              - type: message
+                text: "噛もうとしたが、唇が柔らかすぎて力が入らない……。"
+              - type: modify_stat
+                stat: pt
+                operator: "+"
+                value: 25
+
+            enemy_reaction: "「んふふ……可愛い抵抗♡」"

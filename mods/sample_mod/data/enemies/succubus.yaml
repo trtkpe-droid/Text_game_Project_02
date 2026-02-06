@@ -1,0 +1,101 @@
+enemy:
+  id: succubus
+
+  metadata:
+    name: "サキュバス"
+    description: "夢魔の女性。魅惑的な外見で獲物を誘い込む。"
+
+  stats:
+    hp: 150
+    atk: 20
+    def: 10
+    matk: 35
+    initiative: 12
+
+  rewards:
+    exp: 150
+    drops:
+      type: weighted_random
+      options:
+        - weight: 60
+          value: succubus_feather
+        - weight: 30
+          value: magic_stone
+        - weight: 10
+          value: rare_essence
+
+  text:
+    encounter: "妖艶なサキュバスが現れた！"
+    defeat: "サキュバスは悲鳴を上げて消え去った。"
+    victory: "サキュバスの魔法に屈した……。"
+
+  attack_texts:
+    type: random_select
+    options:
+      - "サキュバスが爪で引っ掻いてきた！"
+      - "サキュバスが尻尾を振り回してきた！"
+      - "サキュバスが妖しく微笑んだ！"
+
+  spells:
+    - charm_touch
+    - energy_drain
+
+  behavior_tree:
+    type: priority_selector
+
+    children:
+      # 最優先: 拘束攻撃（シールド0かつクールダウン完了時）
+      - type: sequence
+        name: binding_attack
+
+        conditions:
+          - type: check_player_stat
+            stat: sp
+            operator: "=="
+            value: 0
+          - type: cooldown_ready
+            skill: bind_drain
+
+        action:
+          type: bind_attack
+          sequence: succubus_drain
+          cooldown: 5
+
+      # 優先: HP50%以下で強攻撃
+      - type: sequence
+        name: desperate_attack
+
+        conditions:
+          - type: check_self_stat
+            stat: hp
+            operator: "<="
+            value: 75
+
+        action:
+          type: cast_spell
+          spell: energy_drain
+          text: "サキュバスが絶望的な表情で精気を吸い取ろうとする！"
+
+      # 通常: ランダム行動
+      - type: weighted_random
+        name: normal_combat
+
+        options:
+          - weight: 50
+            action:
+              type: normal_attack
+
+          - weight: 30
+            action:
+              type: cast_spell
+              spell: charm_touch
+              text: "サキュバスが魅惑的な微笑みを浮かべた……。"
+
+          - weight: 20
+            action:
+              type: defend
+              text: "サキュバスは翼で身を守っている。"
+
+  events:
+    on_victory: boss_room
+    on_defeat: player_defeated

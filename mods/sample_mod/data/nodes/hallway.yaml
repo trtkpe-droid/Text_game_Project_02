@@ -1,0 +1,61 @@
+node:
+  id: hallway
+  type: location
+
+  metadata:
+    display_name: "廊下"
+    description: "薄暗い廊下"
+
+  state_machine:
+    initial_state: normal
+
+    states:
+      normal:
+        description: |
+          薄暗い廊下に出た。
+          左右に部屋があり、正面には大きな扉がある。
+          どこからか不気味な気配を感じる……。
+
+        actions:
+          - id: go_bedroom
+            type: navigation
+            label: "寝室に戻る"
+            target: bedroom
+
+          - id: go_storage
+            type: navigation
+            label: "物置へ行く"
+            target: storage
+
+          - id: go_boss_room
+            type: navigation
+            label: "大きな扉を開ける"
+            target: boss_room
+            requirements:
+              - type: item_check
+                item: boss_key
+            effects:
+              - type: message
+                text: "ボスルームの鍵を使って扉を開けた……"
+
+          - id: examine_door
+            type: interaction
+            label: "大きな扉を調べる"
+            effects:
+              - type: message
+                text: "頑丈な扉だ。特別な鍵がないと開かないようだ。"
+
+          - id: rest
+            type: interaction
+            label: "少し休む"
+            effects:
+              - type: modify_stat
+                stat: hp
+                operator: "+"
+                value: 10
+              - type: modify_stat
+                stat: mp
+                operator: "+"
+                value: 5
+              - type: message
+                text: "少し休んで体力が回復した。（HP+10, MP+5）"

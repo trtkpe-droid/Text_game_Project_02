@@ -1,0 +1,79 @@
+items:
+  - id: herb
+    name: "薬草"
+    description: "傷を癒す効果がある草"
+    type: consumable
+    effects:
+      - type: modify_stat
+        stat: hp
+        operator: "+"
+        value: 20
+      - type: message
+        text: "HPが20回復した。"
+    value: 10
+
+  - id: antidote
+    name: "毒消し"
+    description: "毒を中和する薬"
+    type: consumable
+    effects:
+      - type: cure_status
+        status: poison
+      - type: message
+        text: "毒が治った。"
+    value: 15
+
+  - id: bandage
+    name: "包帯"
+    description: "傷口を保護する"
+    type: consumable
+    effects:
+      - type: modify_stat
+        stat: hp
+        operator: "+"
+        value: 10
+      - type: message
+        text: "HPが10回復した。"
+    value: 5
+
+  - id: old_key
+    name: "古びた鍵"
+    description: "何かの扉を開ける鍵"
+    type: key_item
+    value: 0
+
+  - id: boss_key
+    name: "ボスルームの鍵"
+    description: "金色に輝く特別な鍵"
+    type: key_item
+    value: 0
+
+  - id: candle
+    name: "キャンドル"
+    description: "灯りを灯すことができる"
+    type: key_item
+    value: 5
+
+  - id: lighter
+    name: "ライター"
+    description: "火をつけることができる"
+    type: key_item
+    value: 10
+
+  - id: magic_stone
+    name: "魔石"
+    description: "魔力を秘めた石"
+    type: material
+    value: 50
+
+  - id: succubus_feather
+    name: "サキュバスの羽"
+    description: "妖しく光る羽"
+    type: material
+    value: 30
+
+  - id: rare_essence
+    name: "希少なエッセンス"
+    description: "貴重な魔法の素材"
+    type: material
+    value: 100
