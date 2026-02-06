@@ -11,7 +11,8 @@ from enum import Enum
 
 from .models import (
     GameState, BindSequence, BindStage, CustomAction,
-    SuccessCheck, DefaultChoiceOverride, Effect, Player
+    SuccessCheck, DefaultChoiceOverride, Effect, Player,
+    normalize_stat_name
 )
 
 
@@ -402,11 +403,19 @@ class BindSequenceSystem:
         return True
 
     def _evaluate_formula(self, formula: str) -> int:
-        """Evaluate a stat-based formula."""
+        """Evaluate a stat-based formula. Supports Japanese stat names."""
         player = self.game_state.player
 
-        # Replace stat names with values
+        # Replace stat names with values (both Japanese and English)
         stat_map = {
+            # Japanese names
+            "正気": player.ability_stats.sanity,
+            "筋力": player.ability_stats.strength,
+            "集中": player.ability_stats.focus,
+            "知性": player.ability_stats.intelligence,
+            "知識": player.ability_stats.knowledge,
+            "器用": player.ability_stats.dexterity,
+            # English names
             "sanity": player.ability_stats.sanity,
             "strength": player.ability_stats.strength,
             "focus": player.ability_stats.focus,
@@ -565,7 +574,10 @@ class BindSequenceSystem:
         self._set_stat_value(stat, new_value)
 
     def _get_stat_value(self, stat: str) -> int:
-        """Get a stat value."""
+        """Get a stat value. Supports Japanese stat names."""
+        # Normalize Japanese stat names to English
+        stat = normalize_stat_name(stat)
+
         player = self.game_state.player
         combat = player.combat_stats
         ability = player.ability_stats

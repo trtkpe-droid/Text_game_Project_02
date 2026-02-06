@@ -193,6 +193,43 @@ class AbilityStats:
     dexterity: int = 45  # 器用
 
 
+# Japanese to English stat name mapping
+STAT_NAME_MAP: dict[str, str] = {
+    # Japanese -> English
+    "正気": "sanity",
+    "筋力": "strength",
+    "集中": "focus",
+    "知性": "intelligence",
+    "知識": "knowledge",
+    "器用": "dexterity",
+    # Combat stats
+    "SP": "sp",
+    "HP": "hp",
+    "MP": "mp",
+    "PT": "pt",
+    # English names (pass through)
+    "sanity": "sanity",
+    "strength": "strength",
+    "focus": "focus",
+    "intelligence": "intelligence",
+    "knowledge": "knowledge",
+    "dexterity": "dexterity",
+    "sp": "sp",
+    "hp": "hp",
+    "mp": "mp",
+    "pt": "pt",
+    "sp_max": "sp_max",
+    "hp_max": "hp_max",
+    "mp_max": "mp_max",
+    "pt_max": "pt_max",
+}
+
+
+def normalize_stat_name(stat: str) -> str:
+    """Convert Japanese stat name to English internal name."""
+    return STAT_NAME_MAP.get(stat, stat)
+
+
 @dataclass
 class Player:
     """Player character."""
@@ -202,7 +239,19 @@ class Player:
     equipment: dict[str, str] = field(default_factory=dict)
     spells: list[str] = field(default_factory=list)
     flags: dict[str, Any] = field(default_factory=dict)
-    status_effects: list[dict] = field(default_factory=list)
+    status_effects: list["StatusEffectInstance"] = field(default_factory=list)
+
+    def has_status(self, status_id: str) -> bool:
+        """Check if player has a specific status effect."""
+        return any(se.id == status_id for se in self.status_effects)
+
+    def is_action_prevented(self) -> bool:
+        """Check if player's action is prevented by status effects."""
+        for se in self.status_effects:
+            for effect in se.effects:
+                if effect.get("type") == "prevent_action":
+                    return True
+        return False
 
 
 @dataclass
@@ -367,11 +416,22 @@ class Spell:
 
 @dataclass
 class StatusEffect:
-    """A status effect."""
+    """A status effect definition."""
     id: str
     name: str
     description: str = ""
     duration: int = 1
+    effects: list[dict] = field(default_factory=list)  # On-apply effects (e.g., prevent_action)
+    tick_effects: list[dict] = field(default_factory=list)  # Per-turn effects (e.g., poison damage)
+    text: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class StatusEffectInstance:
+    """An active status effect on a character."""
+    id: str
+    name: str
+    remaining_turns: int
     effects: list[dict] = field(default_factory=list)
     tick_effects: list[dict] = field(default_factory=list)
     text: dict[str, str] = field(default_factory=dict)

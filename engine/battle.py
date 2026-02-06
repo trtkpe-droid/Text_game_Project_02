@@ -10,7 +10,8 @@ from enum import Enum
 
 from .models import (
     GameState, Enemy, Player, BehaviorNode,
-    Spell, SpellEffect
+    Spell, SpellEffect, Item, StatusEffectInstance,
+    normalize_stat_name, ItemPool, WeightedOption
 )
 
 
@@ -33,14 +34,21 @@ class BattleState:
     battle_log: list[str] = field(default_factory=list)
     is_over: bool = False
     player_won: bool = False
+    player_turn_first: bool = True  # Determined by initiative
 
 
 class BattleSystem:
     """Handles combat mechanics."""
 
-    def __init__(self, game_state: GameState, spells: dict[str, Spell]):
+    def __init__(self, game_state: GameState, spells: dict[str, Spell],
+                 items: dict[str, Item] | None = None,
+                 status_effects: dict[str, Any] | None = None,
+                 spell_pools: dict[str, ItemPool] | None = None):
         self.game_state = game_state
         self.spells = spells
+        self.items = items or {}
+        self.status_effects = status_effects or {}
+        self.spell_pools = spell_pools or {}
         self.battle_state: BattleState | None = None
         self._on_battle_end: Callable | None = None
 
@@ -66,7 +74,15 @@ class BattleSystem:
             cooldowns={}
         )
 
-        self.battle_state = BattleState(enemy=battle_enemy)
+        # Determine turn order based on initiative
+        player_initiative = self.game_state.player.ability_stats.dexterity
+        enemy_initiative = enemy.stats.initiative
+        player_first = player_initiative >= enemy_initiative
+
+        self.battle_state = BattleState(
+            enemy=battle_enemy,
+            player_turn_first=player_first
+        )
         self.game_state.in_battle = True
         self.game_state.current_enemy = battle_enemy
 
@@ -75,17 +91,33 @@ class BattleSystem:
             messages.append(battle_enemy.text.encounter)
         messages.append(f"戦闘開始！ {battle_enemy.name}が現れた！")
 
+        # Show turn order
+        if player_first:
+            messages.append("先手を取った！")
+        else:
+            messages.append(f"{battle_enemy.name}に先手を取られた！")
+            # Enemy attacks first
+            messages.extend(self._enemy_turn())
+            # Check if player is defeated after enemy's first turn
+            if self._check_player_defeat():
+                messages.extend(self._handle_player_defeat())
+
         return messages
 
     def get_player_actions(self) -> list[dict]:
         """Get available player actions."""
+        player = self.game_state.player
+
+        # Check if player is action-prevented
+        if player.is_action_prevented():
+            return [{"type": "prevented", "label": "（行動不能）"}]
+
         actions = [
             {"type": BattleAction.ATTACK, "label": "攻撃"},
             {"type": BattleAction.DEFEND, "label": "防御"},
         ]
 
         # Add available spells
-        player = self.game_state.player
         for spell_id in player.spells:
             spell = self.spells.get(spell_id)
             if spell:
@@ -95,6 +127,17 @@ class BattleSystem:
                         "type": BattleAction.SPELL,
                         "spell_id": spell_id,
                         "label": f"{spell.name} (MP: {mp_cost})"
+                    })
+
+        # Add usable items
+        for item_id, count in player.inventory.items():
+            if count > 0:
+                item = self.items.get(item_id)
+                if item and item.type in ["consumable", "usable"]:
+                    actions.append({
+                        "type": BattleAction.ITEM,
+                        "item_id": item_id,
+                        "label": f"{item.name} x{count}"
                     })
 
         # Add escape option
@@ -113,6 +156,20 @@ class BattleSystem:
         player = self.game_state.player
         enemy = self.battle_state.enemy
 
+        # Process status effect ticks at turn start
+        messages.extend(self._process_status_ticks())
+
+        # Check if player is action-prevented
+        if player.is_action_prevented():
+            messages.append("行動できない……！")
+            # Still need to do enemy turn
+            messages.extend(self._enemy_turn())
+            if self._check_player_defeat():
+                messages.extend(self._handle_player_defeat())
+                return messages
+            self._advance_turn()
+            return messages
+
         # Reset defending status
         self.battle_state.player_defending = False
 
@@ -127,8 +184,14 @@ class BattleSystem:
             if spell_id:
                 messages.extend(self._cast_spell(spell_id, is_player=True))
 
+        elif action_type == BattleAction.ITEM:
+            if item_id:
+                messages.extend(self._use_item(item_id))
+
         elif action_type == BattleAction.ESCAPE:
-            if random.random() < 0.5:
+            escape_chance = 0.5 + (player.ability_stats.dexterity - enemy.stats.initiative) * 0.01
+            escape_chance = max(0.1, min(0.9, escape_chance))
+            if random.random() < escape_chance:
                 messages.append("逃げ出した！")
                 self._end_battle(player_won=False, escaped=True)
                 return messages
@@ -144,18 +207,54 @@ class BattleSystem:
         messages.extend(self._enemy_turn())
 
         # Check if player is defeated
-        if player.combat_stats.hp <= 0:
+        if self._check_player_defeat():
             messages.extend(self._handle_player_defeat())
             return messages
 
-        # Check for PT limit
-        if player.combat_stats.pt >= player.combat_stats.pt_max:
-            messages.append("快楽に屈した……！")
-            messages.extend(self._handle_player_defeat())
-            return messages
-
-        self.battle_state.turn += 1
+        self._advance_turn()
         return messages
+
+    def _check_player_defeat(self) -> bool:
+        """Check if player is defeated."""
+        player = self.game_state.player
+        return (player.combat_stats.hp <= 0 or
+                player.combat_stats.pt >= player.combat_stats.pt_max)
+
+    def _advance_turn(self) -> None:
+        """Advance to next turn and update status effects."""
+        self.battle_state.turn += 1
+        self._update_status_durations()
+
+    def _process_status_ticks(self) -> list[str]:
+        """Process status effect tick effects."""
+        messages = []
+        player = self.game_state.player
+
+        for status in player.status_effects:
+            for tick_effect in status.tick_effects:
+                effect_type = tick_effect.get("type")
+                if effect_type == "deal_damage":
+                    damage = tick_effect.get("amount", 10)
+                    player.combat_stats.hp -= damage
+                    text = status.text.get("tick", f"{status.name}のダメージを受けた！")
+                    text = self._apply_template(text, damage=damage)
+                    messages.append(text)
+
+        return messages
+
+    def _update_status_durations(self) -> None:
+        """Update status effect durations and remove expired ones."""
+        player = self.game_state.player
+        expired = []
+
+        for i, status in enumerate(player.status_effects):
+            status.remaining_turns -= 1
+            if status.remaining_turns <= 0:
+                expired.append(i)
+
+        # Remove expired status effects (in reverse order)
+        for i in reversed(expired):
+            player.status_effects.pop(i)
 
     def _player_attack(self) -> list[str]:
         """Execute player's normal attack."""
@@ -164,7 +263,12 @@ class BattleSystem:
 
         # Calculate damage
         base_damage = 20 + player.ability_stats.strength // 5
+
+        # Apply enemy defense (reduced if enemy is defending)
         defense = enemy.stats.defense
+        if self.battle_state.enemy_defending:
+            defense *= 2  # Enemy takes less damage when defending
+
         damage = max(1, base_damage - defense // 2)
 
         # Apply randomness
@@ -172,6 +276,72 @@ class BattleSystem:
 
         enemy.current_hp -= damage
         return [f"攻撃！ {enemy.name}に{damage}のダメージ！"]
+
+    def _use_item(self, item_id: str) -> list[str]:
+        """Use an item in battle."""
+        messages = []
+        player = self.game_state.player
+
+        # Check if player has the item
+        if player.inventory.get(item_id, 0) <= 0:
+            return ["そのアイテムを持っていません。"]
+
+        # Get item definition
+        item = self.items.get(item_id)
+        if not item:
+            return ["不明なアイテムです。"]
+
+        # Consume the item
+        player.inventory[item_id] -= 1
+        if player.inventory[item_id] <= 0:
+            del player.inventory[item_id]
+
+        messages.append(f"{item.name}を使った！")
+
+        # Execute item effects
+        for effect in item.effects:
+            effect_messages = self._apply_item_effect(effect)
+            messages.extend(effect_messages)
+
+        return messages
+
+    def _apply_item_effect(self, effect) -> list[str]:
+        """Apply an item effect."""
+        messages = []
+        player = self.game_state.player
+        effect_type = effect.type
+
+        if effect_type == "modify_stat":
+            stat = normalize_stat_name(effect.stat)
+            operator = effect.operator
+            value = effect.value
+
+            current = self._get_player_stat(stat)
+            if operator == "+":
+                new_value = current + value
+            elif operator == "-":
+                new_value = current - value
+            elif operator == "=":
+                new_value = value
+            else:
+                new_value = current
+
+            self._set_player_stat(stat, new_value)
+
+        elif effect_type == "message":
+            messages.append(effect.text)
+
+        elif effect_type == "cure_status":
+            status_id = effect.value if hasattr(effect, 'value') else None
+            if status_id:
+                player.status_effects = [
+                    s for s in player.status_effects if s.id != status_id
+                ]
+            else:
+                # Cure all status effects
+                player.status_effects.clear()
+
+        return messages
 
     def _cast_spell(self, spell_id: str, is_player: bool = True) -> list[str]:
         """Cast a spell."""
@@ -198,21 +368,23 @@ class BattleSystem:
             target_name = "あなた"
             target = player
 
-        # Cast message
-        cast_text = spell.text.cast.replace("{{caster}}", caster_name)
-        messages.append(cast_text)
+        # Cast message with template
+        cast_text = self._apply_template(spell.text.cast, caster=caster_name, target=target_name)
+        if cast_text:
+            messages.append(cast_text)
 
         # Apply effects
         for effect in spell.effects:
             effect_messages = self._apply_spell_effect(
-                effect, is_player, target, target_name
+                effect, is_player, target, target_name, caster_name
             )
             messages.extend(effect_messages)
 
         return messages
 
     def _apply_spell_effect(self, effect: SpellEffect, is_player: bool,
-                            target: Any, target_name: str) -> list[str]:
+                            target: Any, target_name: str,
+                            caster_name: str = "") -> list[str]:
         """Apply a spell effect."""
         messages = []
         player = self.game_state.player
@@ -221,13 +393,16 @@ class BattleSystem:
         if effect.type == "deal_damage":
             # Calculate damage
             base = effect.base
-            if effect.scaling and is_player:
-                stat_name = effect.scaling.get("stat", "intelligence")
+            if effect.scaling:
+                stat_name = normalize_stat_name(effect.scaling.get("stat", "intelligence"))
                 ratio = effect.scaling.get("ratio", 0.5)
-                stat_value = self._get_ability_stat(stat_name)
+                if is_player:
+                    stat_value = self._get_ability_stat(stat_name)
+                else:
+                    stat_value = enemy.stats.matk
                 base += int(stat_value * ratio)
 
-            # Check for miss
+            # Check for miss (10% chance)
             if random.random() > 0.9:
                 messages.append(f"{target_name}は避けた！")
                 return messages
@@ -235,6 +410,8 @@ class BattleSystem:
             # Apply defense
             if isinstance(target, Enemy):
                 defense = target.stats.defense // 2
+                if self.battle_state.enemy_defending:
+                    defense *= 2
                 damage = max(1, base - defense)
                 target.current_hp -= damage
             else:
@@ -247,15 +424,50 @@ class BattleSystem:
 
             messages.append(f"{target_name}に{damage}のダメージ！")
 
+        elif effect.type == "heal":
+            # Healing effect
+            base = effect.base
+            if effect.scaling and is_player:
+                stat_name = normalize_stat_name(effect.scaling.get("stat", "intelligence"))
+                ratio = effect.scaling.get("ratio", 0.3)
+                stat_value = self._get_ability_stat(stat_name)
+                base += int(stat_value * ratio)
+
+            if is_player:
+                old_hp = player.combat_stats.hp
+                player.combat_stats.hp = min(
+                    player.combat_stats.hp_max,
+                    player.combat_stats.hp + base
+                )
+                healed = player.combat_stats.hp - old_hp
+                messages.append(f"HPが{healed}回復した！")
+
         elif effect.type == "inflict_status":
             if random.randint(1, 100) <= effect.chance:
-                messages.append(f"{target_name}は{effect.status}状態になった！")
-                # Add status effect to target
+                # Create status effect instance
+                status_def = self.status_effects.get(effect.status)
+                if status_def:
+                    status_instance = StatusEffectInstance(
+                        id=effect.status,
+                        name=status_def.name if hasattr(status_def, 'name') else effect.status,
+                        remaining_turns=effect.duration,
+                        effects=status_def.effects if hasattr(status_def, 'effects') else [],
+                        tick_effects=status_def.tick_effects if hasattr(status_def, 'tick_effects') else [],
+                        text=status_def.text if hasattr(status_def, 'text') else {}
+                    )
+                else:
+                    status_instance = StatusEffectInstance(
+                        id=effect.status,
+                        name=effect.status,
+                        remaining_turns=effect.duration,
+                        effects=[{"type": "prevent_action"}] if effect.status == "charm" else [],
+                        tick_effects=[],
+                        text={}
+                    )
+
                 if isinstance(target, Player):
-                    player.status_effects.append({
-                        "id": effect.status,
-                        "duration": effect.duration
-                    })
+                    player.status_effects.append(status_instance)
+                    messages.append(f"{target_name}は{status_instance.name}状態になった！")
             else:
                 messages.append(f"{target_name}は状態異常を防いだ！")
 
@@ -263,6 +475,7 @@ class BattleSystem:
 
     def _get_ability_stat(self, stat_name: str) -> int:
         """Get an ability stat value."""
+        stat_name = normalize_stat_name(stat_name)
         stats = self.game_state.player.ability_stats
         stat_map = {
             "intelligence": stats.intelligence,
@@ -273,6 +486,67 @@ class BattleSystem:
             "dexterity": stats.dexterity,
         }
         return stat_map.get(stat_name, 50)
+
+    def _get_player_stat(self, stat: str) -> int:
+        """Get a player stat value."""
+        stat = normalize_stat_name(stat)
+        player = self.game_state.player
+        combat = player.combat_stats
+        ability = player.ability_stats
+
+        stat_map = {
+            "sp": combat.sp, "hp": combat.hp, "mp": combat.mp, "pt": combat.pt,
+            "sp_max": combat.sp_max, "hp_max": combat.hp_max,
+            "mp_max": combat.mp_max, "pt_max": combat.pt_max,
+            "sanity": ability.sanity, "strength": ability.strength,
+            "focus": ability.focus, "intelligence": ability.intelligence,
+            "knowledge": ability.knowledge, "dexterity": ability.dexterity,
+        }
+        return stat_map.get(stat, 0)
+
+    def _set_player_stat(self, stat: str, value: int) -> None:
+        """Set a player stat value."""
+        stat = normalize_stat_name(stat)
+        player = self.game_state.player
+        combat = player.combat_stats
+        ability = player.ability_stats
+
+        if stat == "sp":
+            combat.sp = max(0, min(combat.sp_max, value))
+        elif stat == "hp":
+            combat.hp = max(0, min(combat.hp_max, value))
+        elif stat == "mp":
+            combat.mp = max(0, min(combat.mp_max, value))
+        elif stat == "pt":
+            combat.pt = max(0, min(combat.pt_max, value))
+        elif stat == "sanity":
+            ability.sanity = max(0, min(100, value))
+        elif stat == "strength":
+            ability.strength = max(0, min(100, value))
+        elif stat == "focus":
+            ability.focus = max(0, min(100, value))
+        elif stat == "intelligence":
+            ability.intelligence = max(0, min(100, value))
+        elif stat == "knowledge":
+            ability.knowledge = max(0, min(100, value))
+        elif stat == "dexterity":
+            ability.dexterity = max(0, min(100, value))
+
+    def _apply_template(self, text: str, **kwargs) -> str:
+        """Apply template variables to text."""
+        if not text:
+            return text
+
+        replacements = {
+            "{{caster}}": kwargs.get("caster", ""),
+            "{{target}}": kwargs.get("target", ""),
+            "{{damage}}": str(kwargs.get("damage", "")),
+        }
+
+        for key, value in replacements.items():
+            text = text.replace(key, value)
+
+        return text
 
     def _enemy_turn(self) -> list[str]:
         """Execute enemy's turn using behavior tree."""
@@ -319,6 +593,8 @@ class BattleSystem:
         elif node.type == "weighted_random":
             # Select random option based on weights
             total_weight = sum(opt.get("weight", 1) for opt in node.options)
+            if total_weight == 0:
+                return None
             roll = random.randint(1, total_weight)
             cumulative = 0
             for opt in node.options:
@@ -336,7 +612,7 @@ class BattleSystem:
         enemy = self.battle_state.enemy
 
         if cond_type == "check_player_stat":
-            stat = condition.get("stat")
+            stat = normalize_stat_name(condition.get("stat"))
             operator = condition.get("operator", "==")
             value = condition.get("value")
 
@@ -392,6 +668,12 @@ class BattleSystem:
 
         elif action_type == "cast_spell":
             spell_id = action.get("spell")
+            spell_pool_id = action.get("spell_pool")
+
+            # Handle spell_pool
+            if spell_pool_id and not spell_id:
+                spell_id = self._select_from_spell_pool(spell_pool_id)
+
             if spell_id:
                 text = action.get("text")
                 if text:
@@ -409,6 +691,25 @@ class BattleSystem:
             self.game_state.current_bind_stage = 0
 
         return messages
+
+    def _select_from_spell_pool(self, pool_id: str) -> str | None:
+        """Select a spell from a spell pool."""
+        pool = self.spell_pools.get(pool_id)
+        if not pool or not pool.options:
+            return None
+
+        total_weight = sum(opt.weight for opt in pool.options)
+        if total_weight == 0:
+            return random.choice(pool.options).value
+
+        roll = random.randint(1, total_weight)
+        cumulative = 0
+        for opt in pool.options:
+            cumulative += opt.weight
+            if roll <= cumulative:
+                return opt.value
+
+        return pool.options[-1].value
 
     def _enemy_attack(self) -> list[str]:
         """Execute enemy's normal attack."""
@@ -469,8 +770,12 @@ class BattleSystem:
 
     def _handle_player_defeat(self) -> list[str]:
         """Handle player defeat."""
+        player = self.game_state.player
         enemy = self.battle_state.enemy
         messages = []
+
+        if player.combat_stats.pt >= player.combat_stats.pt_max:
+            messages.append("快楽に屈した……！")
 
         if enemy.text.victory:
             messages.append(enemy.text.victory)
@@ -487,6 +792,9 @@ class BattleSystem:
 
         self.game_state.in_battle = False
         self.game_state.current_enemy = None
+
+        # Clear temporary status effects after battle
+        # (Keep persistent ones if needed)
 
         if self._on_battle_end:
             self._on_battle_end(player_won, escaped)

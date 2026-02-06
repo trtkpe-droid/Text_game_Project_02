@@ -83,9 +83,14 @@ class GameEngine:
         """Initialize game systems."""
         self.state_machine = StateMachine(self.game_state)
         self.action_system = ActionSystem(
-            self.game_state, self.nodes, self.item_pools
+            self.game_state, self.nodes, self.item_pools, self.items
         )
-        self.battle_system = BattleSystem(self.game_state, self.spells)
+        self.battle_system = BattleSystem(
+            self.game_state, self.spells,
+            items=self.items,
+            status_effects={},  # TODO: Load from YAML
+            spell_pools=self.item_pools  # Reuse item pools for spell pools
+        )
         self.bind_system = BindSequenceSystem(self.game_state, self.bind_sequences)
 
         # Set up callbacks
@@ -267,8 +272,9 @@ class GameEngine:
 
         action_type = action_data.get("type")
         spell_id = action_data.get("spell_id")
+        item_id = action_data.get("item_id")
 
-        messages = self.battle_system.execute_player_action(action_type, spell_id)
+        messages = self.battle_system.execute_player_action(action_type, spell_id, item_id)
         self._emit_messages(messages)
 
         # Check for bind sequence trigger during battle

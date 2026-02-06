@@ -7,7 +7,8 @@ from typing import Any, Callable
 
 from .models import (
     Action, Effect, Requirement, GameState, Node,
-    InteractiveObject, WeightedOption, ItemPool
+    InteractiveObject, WeightedOption, ItemPool, Item,
+    normalize_stat_name
 )
 
 
@@ -34,10 +35,12 @@ class ActionSystem:
     """System for handling actions and effects."""
 
     def __init__(self, game_state: GameState, nodes: dict[str, Node],
-                 item_pools: dict[str, ItemPool]):
+                 item_pools: dict[str, ItemPool],
+                 items: dict[str, Item] | None = None):
         self.game_state = game_state
         self.nodes = nodes
         self.item_pools = item_pools
+        self.items = items or {}
         self._custom_handlers: dict[str, Callable] = {}
 
     def register_handler(self, action_type: str, handler: Callable) -> None:
@@ -68,7 +71,10 @@ class ActionSystem:
         return True
 
     def _get_stat_value(self, stat: str) -> int:
-        """Get a stat value from the player."""
+        """Get a stat value from the player. Supports Japanese stat names."""
+        # Normalize Japanese stat names to English
+        stat = normalize_stat_name(stat)
+
         combat_stats = self.game_state.player.combat_stats
         ability_stats = self.game_state.player.ability_stats
 
@@ -84,7 +90,7 @@ class ActionSystem:
             "pt_max": combat_stats.pt_max,
         }
 
-        # Ability stats (both English and Japanese)
+        # Ability stats
         ability_map = {
             "sanity": ability_stats.sanity,
             "strength": ability_stats.strength,
@@ -102,7 +108,10 @@ class ActionSystem:
         return 0
 
     def _set_stat_value(self, stat: str, value: int) -> None:
-        """Set a stat value on the player."""
+        """Set a stat value on the player. Supports Japanese stat names."""
+        # Normalize Japanese stat names to English
+        stat = normalize_stat_name(stat)
+
         combat_stats = self.game_state.player.combat_stats
         ability_stats = self.game_state.player.ability_stats
 
@@ -216,8 +225,17 @@ class ActionSystem:
             items = self._roll_items(effect.pool, effect.count)
             for item in items:
                 if item:
-                    self._add_item(item, 1)
-                    result.add_message(f"{item}を手に入れた！")
+                    # Handle set items (list of items)
+                    if isinstance(item, list):
+                        for sub_item in item:
+                            if sub_item:
+                                self._add_item(sub_item, 1)
+                                item_name = self._get_item_name(sub_item)
+                                result.add_message(f"{item_name}を手に入れた！")
+                    else:
+                        self._add_item(item, 1)
+                        item_name = self._get_item_name(item)
+                        result.add_message(f"{item_name}を手に入れた！")
 
         elif effect_type == "set_flag":
             self.game_state.player.flags[effect.flag] = effect.value
@@ -288,6 +306,57 @@ class ActionSystem:
         """Add an item to the player's inventory."""
         current = self.game_state.player.inventory.get(item_id, 0)
         self.game_state.player.inventory[item_id] = current + count
+
+    def _get_item_name(self, item_id: str) -> str:
+        """Get the display name of an item."""
+        item = self.items.get(item_id)
+        return item.name if item else item_id
+
+    def use_item(self, item_id: str) -> ActionResult:
+        """Use an item from inventory."""
+        result = ActionResult()
+
+        # Check if player has the item
+        if self.game_state.player.inventory.get(item_id, 0) <= 0:
+            result.success = False
+            result.add_message("そのアイテムを持っていません。")
+            return result
+
+        # Get item definition
+        item = self.items.get(item_id)
+        if not item:
+            result.success = False
+            result.add_message("不明なアイテムです。")
+            return result
+
+        # Check if item is usable
+        if item.type not in ["consumable", "usable"]:
+            result.success = False
+            result.add_message("このアイテムは使用できません。")
+            return result
+
+        # Consume the item
+        self.game_state.player.inventory[item_id] -= 1
+        if self.game_state.player.inventory[item_id] <= 0:
+            del self.game_state.player.inventory[item_id]
+
+        result.add_message(f"{item.name}を使った！")
+
+        # Execute item effects
+        for effect in item.effects:
+            self._execute_effect(effect, result)
+
+        return result
+
+    def get_usable_items(self) -> list[Item]:
+        """Get list of usable items in inventory."""
+        usable = []
+        for item_id, count in self.game_state.player.inventory.items():
+            if count > 0:
+                item = self.items.get(item_id)
+                if item and item.type in ["consumable", "usable"]:
+                    usable.append(item)
+        return usable
 
     def _roll_items(self, pool_id: str, count: int) -> list[Any]:
         """Roll items from a pool."""
