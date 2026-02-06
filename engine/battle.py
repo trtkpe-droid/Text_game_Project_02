@@ -11,7 +11,7 @@ from enum import Enum
 from .models import (
     GameState, Enemy, Player, BehaviorNode,
     Spell, SpellEffect, Item, StatusEffectInstance,
-    normalize_stat_name, ItemPool, WeightedOption
+    normalize_stat_name, ItemPool, WeightedOption, Brand
 )
 
 
@@ -35,6 +35,7 @@ class BattleState:
     is_over: bool = False
     player_won: bool = False
     player_turn_first: bool = True  # Determined by initiative
+    climax_defeat: bool = False  # True if defeat was due to PT overflow
 
 
 class BattleSystem:
@@ -217,8 +218,54 @@ class BattleSystem:
     def _check_player_defeat(self) -> bool:
         """Check if player is defeated."""
         player = self.game_state.player
-        return (player.combat_stats.hp <= 0 or
-                player.combat_stats.pt >= player.combat_stats.pt_max)
+        combat = player.combat_stats
+
+        # Check for climax defeat (PT overflow causing HP damage)
+        if combat.pt >= combat.pt_max:
+            # Climax causes HP damage
+            climax_damage = 20  # Fixed damage from climax
+            combat.hp -= climax_damage
+            combat.pt = 0  # Reset PT after climax
+            if self.battle_state:
+                self.battle_state.battle_log.append(f"絶頂！ HPに{climax_damage}のダメージ！")
+
+            if combat.hp <= 0:
+                # Climax caused game over - mark for branding
+                if self.battle_state:
+                    self.battle_state.climax_defeat = True
+                return True
+
+        # Check for HP defeat
+        return combat.hp <= 0
+
+    def _deal_damage_to_player(self, damage: int, bypass_shield: bool = False) -> tuple[int, int]:
+        """
+        Deal damage to player with SP shield system.
+
+        Args:
+            damage: Amount of damage to deal
+            bypass_shield: If True, damage goes directly to HP (e.g., PT climax damage)
+
+        Returns:
+            Tuple of (shield_damage, hp_damage)
+        """
+        player = self.game_state.player
+        combat = player.combat_stats
+
+        if bypass_shield or combat.sp <= 0:
+            # Damage goes directly to HP
+            combat.hp -= damage
+            return (0, damage)
+
+        # SP absorbs damage first
+        shield_damage = min(damage, combat.sp)
+        combat.sp -= shield_damage
+        remaining_damage = damage - shield_damage
+
+        if remaining_damage > 0:
+            combat.hp -= remaining_damage
+
+        return (shield_damage, remaining_damage)
 
     def _advance_turn(self) -> None:
         """Advance to next turn and update status effects."""
@@ -260,9 +307,16 @@ class BattleSystem:
         """Execute player's normal attack."""
         player = self.game_state.player
         enemy = self.battle_state.enemy
+        messages = []
 
         # Calculate damage
         base_damage = 20 + player.ability_stats.strength // 5
+
+        # Apply brand debuff if player has a brand from this enemy
+        brand_debuff = player.get_brand_debuff(enemy.id)
+        if brand_debuff > 0:
+            base_damage = int(base_damage * (1.0 - brand_debuff))
+            messages.append(f"烙印の影響で攻撃力が低下している……")
 
         # Apply enemy defense (reduced if enemy is defending)
         defense = enemy.stats.defense
@@ -275,7 +329,8 @@ class BattleSystem:
         damage = int(damage * random.uniform(0.9, 1.1))
 
         enemy.current_hp -= damage
-        return [f"攻撃！ {enemy.name}に{damage}のダメージ！"]
+        messages.append(f"攻撃！ {enemy.name}に{damage}のダメージ！")
+        return messages
 
     def _use_item(self, item_id: str) -> list[str]:
         """Use an item in battle."""
@@ -414,15 +469,21 @@ class BattleSystem:
                     defense *= 2
                 damage = max(1, base - defense)
                 target.current_hp -= damage
+                messages.append(f"{target_name}に{damage}のダメージ！")
             else:
+                # Player is target - use SP shield
                 defending = self.battle_state.player_defending
                 defense = 5 if defending else 0
                 damage = max(1, base - defense)
                 if defending:
                     damage //= 2
-                player.combat_stats.hp -= damage
 
-            messages.append(f"{target_name}に{damage}のダメージ！")
+                shield_dmg, hp_dmg = self._deal_damage_to_player(damage)
+
+                if shield_dmg > 0:
+                    messages.append(f"シールドが{shield_dmg}ダメージを吸収した！")
+                if hp_dmg > 0:
+                    messages.append(f"{hp_dmg}のダメージを受けた！")
 
         elif effect.type == "heal":
             # Healing effect
@@ -681,14 +742,19 @@ class BattleSystem:
                 messages.extend(self._cast_spell(spell_id, is_player=False))
 
         elif action_type == "bind_attack":
-            sequence = action.get("sequence")
-            cooldown = action.get("cooldown", 5)
-            enemy.cooldowns["bind_attack"] = cooldown
-            messages.append(f"{enemy.name}が拘束攻撃を仕掛けてきた！")
-            # Signal to start bind sequence
-            self.game_state.in_bind_sequence = True
-            self.game_state.current_bind_sequence = sequence
-            self.game_state.current_bind_stage = 0
+            player = self.game_state.player
+            # Bind attack only works when SP is 0
+            if player.combat_stats.sp > 0:
+                messages.append(f"{enemy.name}が拘束を試みたが、シールドに阻まれた！")
+            else:
+                sequence = action.get("sequence")
+                cooldown = action.get("cooldown", 5)
+                enemy.cooldowns["bind_attack"] = cooldown
+                messages.append(f"{enemy.name}が拘束攻撃を仕掛けてきた！")
+                # Signal to start bind sequence
+                self.game_state.in_bind_sequence = True
+                self.game_state.current_bind_sequence = sequence
+                self.game_state.current_bind_stage = 0
 
         return messages
 
@@ -719,22 +785,12 @@ class BattleSystem:
         # Calculate damage
         base_damage = enemy.stats.atk
         defending = self.battle_state.player_defending
-        shield_damage = 0
-        hp_damage = 0
-
-        if player.combat_stats.sp > 0:
-            # Damage goes to shield first
-            shield_damage = min(base_damage, player.combat_stats.sp)
-            player.combat_stats.sp -= shield_damage
-            hp_damage = base_damage - shield_damage
-        else:
-            hp_damage = base_damage
 
         if defending:
-            hp_damage //= 2
+            base_damage //= 2
 
-        if hp_damage > 0:
-            player.combat_stats.hp -= hp_damage
+        # Use SP shield system
+        shield_damage, hp_damage = self._deal_damage_to_player(base_damage)
 
         # Get attack text
         if enemy.attack_texts:
@@ -774,12 +830,22 @@ class BattleSystem:
         enemy = self.battle_state.enemy
         messages = []
 
-        if player.combat_stats.pt >= player.combat_stats.pt_max:
+        # Check if this was a climax defeat (PT overflow caused HP to reach 0)
+        if self.battle_state.climax_defeat:
             messages.append("快楽に屈した……！")
+
+            # Add brand from this enemy
+            if not player.has_brand(enemy.id):
+                player.add_brand(enemy.id, enemy.name)
+                messages.append(f"{enemy.name}の烙印が刻まれた……")
+                messages.append("この敵に対する攻撃力が低下する。")
 
         if enemy.text.victory:
             messages.append(enemy.text.victory)
         messages.append("敗北した……")
+
+        # Set game over
+        self.game_state.game_over = True
 
         self._end_battle(player_won=False)
         return messages

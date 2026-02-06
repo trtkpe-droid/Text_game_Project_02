@@ -8,7 +8,7 @@ import json
 
 from .models import (
     GameState, Node, Player, CombatStats, AbilityStats,
-    Enemy, BindSequence, Spell, Item, ItemPool, ModInfo
+    Enemy, BindSequence, Spell, Item, ItemPool, ModInfo, Brand
 )
 from .yaml_parser import YAMLParser
 from .state_machine import StateMachine
@@ -396,6 +396,14 @@ class GameEngine:
                 "inventory": self.game_state.player.inventory,
                 "flags": self.game_state.player.flags,
                 "spells": self.game_state.player.spells,
+                "brands": [
+                    {
+                        "enemy_id": b.enemy_id,
+                        "enemy_name": b.enemy_name,
+                        "debuff_ratio": b.debuff_ratio
+                    }
+                    for b in self.game_state.player.brands
+                ],
             },
             "node_states": {
                 node_id: node.current_state
@@ -450,6 +458,16 @@ class GameEngine:
             self.game_state.player.inventory = player_data["inventory"]
             self.game_state.player.flags = player_data["flags"]
             self.game_state.player.spells = player_data["spells"]
+
+            # Restore brands
+            self.game_state.player.brands = [
+                Brand(
+                    enemy_id=b["enemy_id"],
+                    enemy_name=b.get("enemy_name", ""),
+                    debuff_ratio=b.get("debuff_ratio", 0.2)
+                )
+                for b in player_data.get("brands", [])
+            ]
 
             # Restore node states
             for node_id, state in save_data["node_states"].items():

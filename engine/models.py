@@ -240,6 +240,7 @@ class Player:
     spells: list[str] = field(default_factory=list)
     flags: dict[str, Any] = field(default_factory=dict)
     status_effects: list["StatusEffectInstance"] = field(default_factory=list)
+    brands: list["Brand"] = field(default_factory=list)
 
     def has_status(self, status_id: str) -> bool:
         """Check if player has a specific status effect."""
@@ -251,6 +252,35 @@ class Player:
             for effect in se.effects:
                 if effect.get("type") == "prevent_action":
                     return True
+        return False
+
+    def has_brand(self, enemy_id: str) -> bool:
+        """Check if player has a brand from specific enemy."""
+        return any(b.enemy_id == enemy_id for b in self.brands)
+
+    def get_brand_debuff(self, enemy_id: str) -> float:
+        """Get the attack debuff ratio for a specific enemy (0.0-1.0)."""
+        for brand in self.brands:
+            if brand.enemy_id == enemy_id:
+                return brand.debuff_ratio
+        return 0.0
+
+    def add_brand(self, enemy_id: str, enemy_name: str, debuff_ratio: float = 0.2) -> None:
+        """Add a brand from an enemy (if not already branded)."""
+        if not self.has_brand(enemy_id):
+            from .models import Brand  # Avoid circular import at module level
+            self.brands.append(Brand(
+                enemy_id=enemy_id,
+                enemy_name=enemy_name,
+                debuff_ratio=debuff_ratio
+            ))
+
+    def remove_brand(self, enemy_id: str) -> bool:
+        """Remove a brand. Returns True if removed, False if not found."""
+        for i, brand in enumerate(self.brands):
+            if brand.enemy_id == enemy_id:
+                self.brands.pop(i)
+                return True
         return False
 
 
@@ -435,6 +465,14 @@ class StatusEffectInstance:
     effects: list[dict] = field(default_factory=list)
     tick_effects: list[dict] = field(default_factory=list)
     text: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class Brand:
+    """A brand/mark left by an enemy after climax defeat."""
+    enemy_id: str
+    enemy_name: str = ""
+    debuff_ratio: float = 0.2  # Default: 20% attack reduction
 
 
 @dataclass
