@@ -1,0 +1,124 @@
+spells:
+  - id: fire_ball
+    metadata:
+      name: "ファイアボール"
+      description: "炎の球を放つ基本魔法"
+
+    cost:
+      mp: 15
+
+    effects:
+      - type: deal_damage
+        damage_type: magic
+        element: fire
+        base: 30
+        scaling:
+          stat: intelligence
+          ratio: 0.5
+
+    text:
+      cast: "炎の球を放った！"
+      hit: "敵に炎が直撃した！"
+      miss: "敵は炎を避けた！"
+
+  - id: ice_shard
+    metadata:
+      name: "アイスシャード"
+      description: "氷の礫を放つ魔法"
+
+    cost:
+      mp: 12
+
+    effects:
+      - type: deal_damage
+        damage_type: magic
+        element: ice
+        base: 25
+        scaling:
+          stat: intelligence
+          ratio: 0.4
+
+    text:
+      cast: "氷の礫を放った！"
+      hit: "鋭い氷が突き刺さった！"
+      miss: "氷は外れた！"
+
+  - id: charm_touch
+    metadata:
+      name: "魅了の接触"
+      description: "触れた相手を魅了する"
+
+    cost:
+      mp: 20
+
+    effects:
+      - type: inflict_status
+        status: charm
+        duration: 1
+        chance: 70
+
+    text:
+      cast: "サキュバスが妖しい光を放った……。"
+      success: "魅了された！動けない……！"
+      resist: "誘惑を振り切った！"
+
+  - id: energy_drain
+    metadata:
+      name: "エナジードレイン"
+      description: "生命力を吸収する"
+
+    cost:
+      mp: 25
+
+    effects:
+      - type: deal_damage
+        damage_type: magic
+        base: 20
+        scaling:
+          stat: intelligence
+          ratio: 0.3
+
+    text:
+      cast: "サキュバスが精気を吸い取ろうとする！"
+      hit: "生命力が奪われた！"
+      miss: "吸収を防いだ！"
+
+  - id: heal
+    metadata:
+      name: "ヒール"
+      description: "傷を癒す回復魔法"
+
+    cost:
+      mp: 10
+
+    effects:
+      - type: heal
+        base: 30
+        scaling:
+          stat: intelligence
+          ratio: 0.3
+
+    text:
+      cast: "回復魔法を唱えた。"
+      hit: "傷が癒えた。"
+
+  - id: seductive_touch
+    metadata:
+      name: "誘惑の接触"
+      description: "快楽を与えて精神を削る攻撃"
+
+    cost:
+      mp: 15
+
+    effects:
+      - type: deal_damage
+        damage_type: pt
+        base: 25
+        scaling:
+          stat: intelligence
+          ratio: 0.4
+
+    text:
+      cast: "サキュバスが妖しく指を滑らせた……"
+      hit: "快楽が走った！"
+      miss: "誘惑を防いだ！"

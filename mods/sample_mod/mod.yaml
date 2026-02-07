@@ -1,0 +1,15 @@
+mod:
+  id: sample_dungeon
+  version: "1.0.0"
+
+  metadata:
+    name: "サンプルダンジョン"
+    author: "Sample Author"
+    description: "ゲームエンジンのデモ用サンプルMOD"
+    tags: [fantasy, demo]
+
+  dependencies:
+    engine_version: ">=2.0.0"
+    required_mods: []
+
+  entry_point: bedroom

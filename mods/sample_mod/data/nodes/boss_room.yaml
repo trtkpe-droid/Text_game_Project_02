@@ -1,0 +1,69 @@
+node:
+  id: boss_room
+  type: location
+
+  metadata:
+    display_name: "ボスの間"
+    description: "最深部の大広間"
+
+  state_machine:
+    initial_state: boss_waiting
+
+    states:
+      boss_waiting:
+        description: |
+          巨大な広間に足を踏み入れた。
+          部屋の中央には、妖艶な女性の姿が浮かんでいる。
+
+          「ようこそ、迷い込んだ小さな獲物さん……」
+
+          サキュバスが微笑みながらこちらに近づいてくる！
+
+        actions:
+          - id: fight_boss
+            type: interaction
+            label: "戦う"
+            effects:
+              - type: battle
+                enemy: succubus
+
+          - id: try_escape
+            type: navigation
+            label: "逃げる"
+            target: hallway
+            effects:
+              - type: message
+                text: "サキュバスの魔力が扉を塞いでいる！逃げられない！"
+
+      boss_defeated:
+        description: |
+          サキュバスを倒した広間。
+          奥に光る出口が見える。
+
+        actions:
+          - id: go_exit
+            type: interaction
+            label: "出口へ向かう"
+            effects:
+              - type: game_clear
+                ending: normal
+
+          - id: go_hallway
+            type: navigation
+            label: "廊下に戻る"
+            target: hallway
+
+      player_defeated:
+        description: |
+          サキュバスに敗北した……。
+          意識が薄れていく中、彼女の甘い囁きが聞こえる。
+
+          「ふふ、私のものになりなさい……♡」
+
+        actions:
+          - id: game_over_action
+            type: interaction
+            label: "..."
+            effects:
+              - type: game_over
+                reason: "サキュバスに魅了された……"

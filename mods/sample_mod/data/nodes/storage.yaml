@@ -1,0 +1,71 @@
+node:
+  id: storage
+  type: location
+
+  metadata:
+    display_name: "物置"
+    description: "埃っぽい物置部屋"
+
+  state_machine:
+    initial_state: normal
+
+    states:
+      normal:
+        description: |
+          古びた物置に入った。
+          埃が舞い、様々なガラクタが山積みになっている。
+          奥に何か光るものが見える……。
+
+        actions:
+          - id: search_junk
+            type: interaction
+            label: "ガラクタを漁る"
+            effects:
+              - type: item_roll
+                pool: daily_items
+                count: 1
+
+          - id: search_chest
+            type: interaction
+            label: "古い宝箱を開ける"
+            requirements:
+              - type: item_check
+                item: old_key
+            effects:
+              - type: get_item
+                item: boss_key
+              - type: message
+                text: "宝箱の中から、金色に輝く鍵を見つけた！"
+              - type: change_node_state
+                new_state: chest_opened
+
+          - id: examine_chest
+            type: interaction
+            label: "古い宝箱を調べる"
+            effects:
+              - type: message
+                text: "鍵がかかっている。古い鍵が必要そうだ。"
+
+          - id: go_hallway
+            type: navigation
+            label: "廊下に戻る"
+            target: hallway
+
+      chest_opened:
+        description: |
+          古びた物置。
+          開いた宝箱が置かれている。
+
+        actions:
+          - id: search_junk
+            type: interaction
+            label: "ガラクタを漁る"
+            effects:
+              - type: item_roll
+                pool: daily_items
+                count: 1
+
+          - id: go_hallway
+            type: navigation
+            label: "廊下に戻る"
+            target: hallway

@@ -1,0 +1,127 @@
+node:
+  id: bedroom
+  type: location
+
+  metadata:
+    display_name: "寝室"
+    description: "プレイヤーの私室"
+
+  state_machine:
+    initial_state: normal
+
+    states:
+      normal:
+        description: |
+          あなたはベッドルームにいる。
+          部屋は整然として、清潔に保たれている。
+          窓からは朝の光が差し込んでいる。
+
+        actions:
+          - id: search_drawer
+            type: interaction
+            label: "タンスを探る"
+            effects:
+              - type: item_roll
+                pool: daily_items
+                count: 1
+
+          - id: search_drawer_deep
+            type: interaction
+            label: "タンスの裏を探る"
+            requirements:
+              - type: stat_check
+                stat: focus
+                operator: ">="
+                value: 40
+            effects:
+              - type: get_item
+                item: old_key
+              - type: message
+                text: "タンスの裏から古びた鍵を見つけた！"
+
+          - id: go_hallway
+            type: navigation
+            label: "廊下へ出る"
+            target: hallway
+
+      on_fire:
+        trigger:
+          type: flag_check
+          flag: fire_started
+          value: true
+
+        description: |
+          ベッドルームでは火が燃え盛っている！
+          悠長に探索している場合ではない。
+
+        actions:
+          - id: escape
+            type: navigation
+            label: "廊下へ脱出する"
+            target: hallway
+            effects:
+              - type: message
+                text: "炎をかいくぐって脱出した！"
+
+  objects:
+    candle:
+      id: candle
+      type: interactive_object
+
+      state_machine:
+        initial_state: lit
+
+        states:
+          lit:
+            description: "サイドテーブルでは、キャンドルの上に小さな灯が揺れている。"
+
+            actions:
+              - id: take_candle
+                type: interaction
+                label: "キャンドルをとる"
+                effects:
+                  - type: get_item
+                    item: candle
+                  - type: change_object_state
+                    object: candle
+                    new_state: taken
+
+              - id: extinguish
+                type: interaction
+                label: "灯を消す"
+                effects:
+                  - type: message
+                    text: "息を吹きかけて消した。"
+                  - type: change_object_state
+                    object: candle
+                    new_state: extinguished
+
+          extinguished:
+            description: "サイドテーブルには、火の消えたキャンドルが置かれている。"
+
+            actions:
+              - id: take_candle_ext
+                type: interaction
+                label: "キャンドルをとる"
+                effects:
+                  - type: get_item
+                    item: candle
+                  - type: change_object_state
+                    object: candle
+                    new_state: taken
+
+              - id: light
+                type: interaction
+                label: "灯をつける"
+                requirements:
+                  - type: item_check
+                    item: lighter
+                effects:
+                  - type: message
+                    text: "再び火をつけた。"
+                  - type: change_object_state
+                    object: candle
+                    new_state: lit
+
+          taken:
+            description: "サイドテーブルには何も置かれていない。"
