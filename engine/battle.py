@@ -220,23 +220,57 @@ class BattleSystem:
         player = self.game_state.player
         combat = player.combat_stats
 
-        # Check for climax defeat (PT overflow causing HP damage)
-        if combat.pt >= combat.pt_max:
-            # Climax causes HP damage
-            climax_damage = 20  # Fixed damage from climax
-            combat.hp -= climax_damage
-            combat.pt = 0  # Reset PT after climax
-            if self.battle_state:
-                self.battle_state.battle_log.append(f"絶頂！ HPに{climax_damage}のダメージ！")
-
-            if combat.hp <= 0:
-                # Climax caused game over - mark for branding
-                if self.battle_state:
-                    self.battle_state.climax_defeat = True
-                return True
-
         # Check for HP defeat
         return combat.hp <= 0
+
+    def _deal_pt_damage(self, amount: int) -> tuple[list[str], int]:
+        """
+        Deal pleasure (PT) damage to player.
+
+        When PT reaches threshold, triggers climax which:
+        - Resets PT to 0
+        - Deals HP damage based on the amount of PT overflow
+
+        Args:
+            amount: Amount of PT to add
+
+        Returns:
+            Tuple of (messages, hp_damage_dealt)
+        """
+        messages = []
+        player = self.game_state.player
+        combat = player.combat_stats
+        hp_damage = 0
+
+        # Add PT
+        old_pt = combat.pt
+        combat.pt = min(combat.pt_max, combat.pt + amount)
+        actual_pt_gain = combat.pt - old_pt
+
+        if actual_pt_gain > 0:
+            messages.append(f"PTが{actual_pt_gain}上昇した！")
+
+        # Check for climax
+        if combat.pt >= combat.pt_max:
+            messages.append("絶頂した！")
+
+            # Calculate climax damage (base + portion of accumulated PT)
+            base_climax_damage = 10
+            pt_ratio_damage = combat.pt_max // 5  # 20% of max PT as damage
+            hp_damage = base_climax_damage + pt_ratio_damage
+
+            # Reset PT
+            combat.pt = 0
+
+            # Deal HP damage (bypasses SP shield)
+            combat.hp -= hp_damage
+            messages.append(f"HPに{hp_damage}のダメージ！")
+
+            # Check if this causes defeat
+            if combat.hp <= 0 and self.battle_state:
+                self.battle_state.climax_defeat = True
+
+        return (messages, hp_damage)
 
     def _deal_damage_to_player(self, damage: int, bypass_shield: bool = False) -> tuple[int, int]:
         """
@@ -462,6 +496,9 @@ class BattleSystem:
                 messages.append(f"{target_name}は避けた！")
                 return messages
 
+            # Check for PT (pleasure) damage type
+            damage_type = getattr(effect, 'damage_type', None)
+
             # Apply defense
             if isinstance(target, Enemy):
                 defense = target.stats.defense // 2
@@ -471,19 +508,25 @@ class BattleSystem:
                 target.current_hp -= damage
                 messages.append(f"{target_name}に{damage}のダメージ！")
             else:
-                # Player is target - use SP shield
+                # Player is target
                 defending = self.battle_state.player_defending
                 defense = 5 if defending else 0
                 damage = max(1, base - defense)
                 if defending:
                     damage //= 2
 
-                shield_dmg, hp_dmg = self._deal_damage_to_player(damage)
+                if damage_type == "pt":
+                    # PT damage - increases pleasure only, may trigger climax
+                    pt_messages, _ = self._deal_pt_damage(damage)
+                    messages.extend(pt_messages)
+                else:
+                    # Normal damage - use SP shield
+                    shield_dmg, hp_dmg = self._deal_damage_to_player(damage)
 
-                if shield_dmg > 0:
-                    messages.append(f"シールドが{shield_dmg}ダメージを吸収した！")
-                if hp_dmg > 0:
-                    messages.append(f"{hp_dmg}のダメージを受けた！")
+                    if shield_dmg > 0:
+                        messages.append(f"シールドが{shield_dmg}ダメージを吸収した！")
+                    if hp_dmg > 0:
+                        messages.append(f"{hp_dmg}のダメージを受けた！")
 
         elif effect.type == "heal":
             # Healing effect

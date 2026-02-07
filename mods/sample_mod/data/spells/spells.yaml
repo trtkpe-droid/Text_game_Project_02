@@ -101,3 +101,24 @@ spells:
     text:
       cast: "回復魔法を唱えた。"
       hit: "傷が癒えた。"
+
+  - id: seductive_touch
+    metadata:
+      name: "誘惑の接触"
+      description: "快楽を与えて精神を削る攻撃"
+
+    cost:
+      mp: 15
+
+    effects:
+      - type: deal_damage
+        damage_type: pt
+        base: 25
+        scaling:
+          stat: intelligence
+          ratio: 0.4
+
+    text:
+      cast: "サキュバスが妖しく指を滑らせた……"
+      hit: "快楽が走った！"
+      miss: "誘惑を防いだ！"

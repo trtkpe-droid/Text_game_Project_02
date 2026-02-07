@@ -39,6 +39,7 @@ enemy:
   spells:
     - charm_touch
     - energy_drain
+    - seductive_touch
 
   behavior_tree:
     type: priority_selector
@@ -81,17 +82,23 @@ enemy:
         name: normal_combat
 
         options:
-          - weight: 50
+          - weight: 30
             action:
               type: normal_attack
 
-          - weight: 30
+          - weight: 25
             action:
               type: cast_spell
               spell: charm_touch
               text: "サキュバスが魅惑的な微笑みを浮かべた……。"
 
-          - weight: 20
+          - weight: 30
+            action:
+              type: cast_spell
+              spell: seductive_touch
+              text: "サキュバスが妖しく微笑み、指先で触れてきた……。"
+
+          - weight: 15
             action:
               type: defend
               text: "サキュバスは翼で身を守っている。"
