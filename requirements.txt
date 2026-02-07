@@ -1,2 +1,5 @@
 # Text Game Engine Dependencies
 PyYAML>=6.0
+
+# Development/Testing
+pytest>=7.0
